@@ -12,6 +12,7 @@ use std::{collections::HashMap, fmt::Debug, fs, path::PathBuf};
 use cargo_metadata::MetadataCommand;
 use log::{debug, warn};
 use syn::{Attribute, Ident, ItemEnum, ItemStruct, UseTree};
+use serde_derive::Deserialize;
 
 use crate::markers;
 
@@ -22,7 +23,17 @@ pub struct Crate {
     pub name: String,
     pub manifest_path: PathBuf,
     pub root_src_file: PathBuf,
-    pub root_module: Module,
+    pub root_module: Module
+}
+
+#[derive(Deserialize)]
+struct Manifest {
+    pub lib: ManifestLib
+}
+
+#[derive(Deserialize)]
+struct ManifestLib {
+    pub path: String
 }
 
 impl Crate {
@@ -31,6 +42,7 @@ impl Crate {
         cmd.manifest_path(&manifest_path);
 
         let metadata = cmd.exec().unwrap();
+        debug!("Parsing crate {:?} {:?}", metadata.root_package().unwrap().name, metadata.packages[0].version);
 
         let root_package = metadata.root_package().unwrap();
         let root_src_file = {
@@ -50,12 +62,26 @@ impl Crate {
             } else if main_file.exists() {
                 fs::canonicalize(main_file).unwrap()
             } else {
-                panic!("No src/lib.rs or src/main.rs found for this Cargo.toml file");
+                let raw_content = std::fs::read_to_string(&root_package.manifest_path).unwrap();
+                let parsed_manifest_content: Manifest = toml::from_str(raw_content.as_str()).unwrap();
+                let lib_path = root_package.manifest_path.parent().unwrap().join(parsed_manifest_content.lib.path);
+
+                if lib_path.exists() {
+                    fs::canonicalize(lib_path).unwrap()
+                } else {
+                    panic!("No src/lib.rs or src/main.rs found for this Cargo.toml file");
+                }
             }
         };
 
         let source_rust_content = fs::read_to_string(&root_src_file).unwrap();
-        let file_ast = syn::parse_file(&source_rust_content).unwrap();
+        let file_ast = syn::parse_file(&source_rust_content).unwrap_or_else(|_| {
+            syn::File {
+                shebang: None,
+                attrs: vec!(),
+                items: vec!()
+            }
+        });
 
         let mut result = Crate {
             name: root_package.name.clone(),
@@ -67,7 +93,7 @@ impl Crate {
                 module_path: vec!["crate".to_string()],
                 source: Some(ModuleSource::File(file_ast)),
                 scope: None,
-            },
+            }
         };
 
         result.resolve();
@@ -287,7 +313,13 @@ impl Module {
                                 let source_rust_content = fs::read_to_string(&file_path).unwrap();
                                 debug!("Trying to parse {:?}", file_path);
                                 Some(ModuleSource::File(
-                                    syn::parse_file(&source_rust_content).unwrap(),
+                                    syn::parse_file(&source_rust_content).unwrap_or_else(|_| {
+                                        syn::File {
+                                            shebang: None,
+                                            attrs: vec!(),
+                                            items: vec!()
+                                        }
+                                    }),
                                 ))
                             } else {
                                 None
