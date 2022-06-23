@@ -48,6 +48,7 @@ pub fn generate(
         dart_api2wire_funcs,
         dart_api_fill_to_wire_funcs,
         dart_wire2api_funcs,
+        dart_imports: _,
         needs_freezed,
     } = get_dart_api_spec_from_ir_file(ir_file);
 
@@ -91,6 +92,7 @@ struct DartApiSpec {
     dart_api2wire_funcs: Vec<String>,
     dart_api_fill_to_wire_funcs: Vec<String>,
     dart_wire2api_funcs: Vec<String>,
+    dart_imports: Vec<String>,
     needs_freezed: bool,
 }
 
@@ -139,6 +141,7 @@ fn get_dart_api_spec_from_ir_file(ir_file: &IrFile) -> DartApiSpec {
         dart_api2wire_funcs,
         dart_api_fill_to_wire_funcs,
         dart_wire2api_funcs,
+        dart_imports,
         needs_freezed,
     }
 }

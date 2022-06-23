@@ -25,7 +25,7 @@ mod transformer;
 mod utils;
 use error::*;
 
-pub fn frb_codegen(config: &config::Opts) -> anyhow::Result<()> {
+pub fn frb_codegen(config: &config::Opts, is_root: bool, structs: Option<Vec<String>>, enums: Option<Vec<String>>) -> anyhow::Result<()> {
     ensure_tools_available()?;
 
     info!("Picked config: {:?}", config);
@@ -38,7 +38,7 @@ pub fn frb_codegen(config: &config::Opts) -> anyhow::Result<()> {
     let file_ast = syn::parse_file(&source_rust_content)?;
 
     info!("Phase: Parse AST to IR");
-    let raw_ir_file = parser::parse(&source_rust_content, file_ast, &config.manifest_path);
+    let raw_ir_file = parser::parse(&source_rust_content, file_ast, &config.manifest_path, is_root, structs, enums);
 
     info!("Phase: Transform IR");
     let ir_file = transformer::transform(raw_ir_file);

@@ -17,7 +17,7 @@ fn main() -> anyhow::Result<()> {
 
     // primary generation of rust api for ffi
     for config in &configs {
-        frb_codegen(config).unwrap();
+        frb_codegen(config, false, None, None).unwrap();
     }
     // TODO:primary check duplicated apis among all rust blocks
 

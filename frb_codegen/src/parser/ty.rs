@@ -2,14 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::string::String;
 
 use syn::*;
-use log::debug;
 
 use crate::ir::IrType::*;
 use crate::ir::*;
 
 use crate::markers;
 
-use crate::source_graph::{Enum, Struct};
+use crate::source_graph::{Enum, Struct, Crate};
 
 use crate::parser::{extract_comments, extract_metadata, type_to_string};
 
@@ -170,6 +169,48 @@ impl<'a> TypeParser<'a> {
         })
     }
 
+    fn test(&mut self, ident_string: &str, p: &SupportedPathType ) -> Option<IrType>{
+        IrTypePrimitive::try_from_rust_str(ident_string)
+                .map(Primitive)
+                .or_else(|| {
+                    if ident_string == "String" {
+                        Some(IrType::Delegate(IrTypeDelegate::String))
+                    } else if self.src_structs.contains_key(ident_string) {
+                        if !self.parsing_or_parsed_struct_names.contains(ident_string) {
+                            self.parsing_or_parsed_struct_names
+                                .insert(ident_string.to_owned());
+                            let api_struct = self.parse_struct_core(&p.ident);
+                            self.struct_pool.insert(ident_string.to_owned(), api_struct);
+                        }
+
+                        Some(StructRef(IrTypeStructRef {
+                            name: ident_string.to_owned(),
+                            freezed: self
+                                .struct_pool
+                                .get(ident_string)
+                                .map(IrStruct::using_freezed)
+                                .unwrap_or(false),
+                        }))
+                    } else if self.src_enums.contains_key(ident_string) {
+                        if self.parsed_enums.insert(ident_string.to_owned()) {
+                            let enu = self.parse_enum_core(&p.ident);
+                            self.enum_pool.insert(ident_string.to_owned(), enu);
+                        }
+
+                        Some(EnumRef(IrTypeEnumRef {
+                            name: ident_string.to_owned(),
+                            is_struct: self
+                                .enum_pool
+                                .get(ident_string)
+                                .map(IrEnum::is_struct)
+                                .unwrap_or(true),
+                        }))
+                    } else {
+                        None
+                    }
+                })
+    }
+
     /// Converts a path type into an `IrType` if possible.
     pub fn convert_path_to_ir_type(&mut self, p: SupportedPathType) -> Option<IrType> {
         let p_as_str = format!("{}", &p);
@@ -254,45 +295,7 @@ impl<'a> TypeParser<'a> {
                 },
             }
         } else {
-            IrTypePrimitive::try_from_rust_str(ident_string)
-                .map(Primitive)
-                .or_else(|| {
-                    if ident_string == "String" {
-                        Some(IrType::Delegate(IrTypeDelegate::String))
-                    } else if self.src_structs.contains_key(ident_string) {
-                        if !self.parsing_or_parsed_struct_names.contains(ident_string) {
-                            self.parsing_or_parsed_struct_names
-                                .insert(ident_string.to_owned());
-                            let api_struct = self.parse_struct_core(&p.ident);
-                            self.struct_pool.insert(ident_string.to_owned(), api_struct);
-                        }
-
-                        Some(StructRef(IrTypeStructRef {
-                            name: ident_string.to_owned(),
-                            freezed: self
-                                .struct_pool
-                                .get(ident_string)
-                                .map(IrStruct::using_freezed)
-                                .unwrap_or(false),
-                        }))
-                    } else if self.src_enums.contains_key(ident_string) {
-                        if self.parsed_enums.insert(ident_string.to_owned()) {
-                            let enu = self.parse_enum_core(&p.ident);
-                            self.enum_pool.insert(ident_string.to_owned(), enu);
-                        }
-
-                        Some(EnumRef(IrTypeEnumRef {
-                            name: ident_string.to_owned(),
-                            is_struct: self
-                                .enum_pool
-                                .get(ident_string)
-                                .map(IrEnum::is_struct)
-                                .unwrap_or(true),
-                        }))
-                    } else {
-                        None
-                    }
-                })
+            self.test(ident_string, &p)
         }
     }
 }
