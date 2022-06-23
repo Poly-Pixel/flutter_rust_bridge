@@ -7,7 +7,7 @@
         - Imports that start with two colons (use ::a::b) - these are also silently ignored
 */
 
-use std::{collections::HashMap, fmt::Debug, fs, path::PathBuf};
+use std::{collections::HashMap, fmt::Debug, fs, path::PathBuf, cell::RefCell};
 
 use cargo_metadata::MetadataCommand;
 use log::{debug, warn};
@@ -23,7 +23,8 @@ pub struct Crate {
     pub name: String,
     pub manifest_path: PathBuf,
     pub root_src_file: PathBuf,
-    pub root_module: Module
+    pub root_module: Module,
+    pub deps: Vec<Crate>
 }
 
 #[derive(Deserialize)]
@@ -36,69 +37,113 @@ struct ManifestLib {
     pub path: String
 }
 
+thread_local!(static DEP_IDS: RefCell<Vec<String>> = RefCell::new(vec!()));
+
 impl Crate {
-    pub fn new(manifest_path: &str) -> Self {
+    pub fn new(manifest_path: &str, is_root: bool) -> Self {
         let mut cmd = MetadataCommand::new();
         cmd.manifest_path(&manifest_path);
 
-        let metadata = cmd.exec().unwrap();
-        debug!("Parsing crate {:?} {:?}", metadata.root_package().unwrap().name, metadata.packages[0].version);
+        let metadata_res = cmd.exec();
+        if metadata_res.is_err() {
+            Crate {
+                name: "".to_string(),
+                manifest_path: std::path::PathBuf::new(),
+                root_src_file: std::path::PathBuf::new(),
+                root_module: Module {
+                    visibility: Visibility::Public,
+                    file_path: std::path::PathBuf::new(),
+                    module_path: vec!["".to_string()],
+                    source: None,
+                    scope: None,
+                },
+                deps: vec!()
+            }
+        } else {
+            let metadata = metadata_res.unwrap();
+            let root_package = metadata.root_package().unwrap();
+            debug!("Parsing crate {:?} v{:?}.{:?}.{:?}", root_package.name, root_package.version.major, root_package.version.minor, root_package.version.patch);
 
-        let root_package = metadata.root_package().unwrap();
-        let root_src_file = {
-            let lib_file = root_package
-                .manifest_path
-                .parent()
-                .unwrap()
-                .join("src/lib.rs");
-            let main_file = root_package
-                .manifest_path
-                .parent()
-                .unwrap()
-                .join("src/main.rs");
+            let root_package = metadata.root_package().unwrap();
+            let root_src_file = {
+                let lib_file = root_package
+                    .manifest_path
+                    .parent()
+                    .unwrap()
+                    .join("src/lib.rs");
+                let main_file = root_package
+                    .manifest_path
+                    .parent()
+                    .unwrap()
+                    .join("src/main.rs");
 
-            if lib_file.exists() {
-                fs::canonicalize(lib_file).unwrap()
-            } else if main_file.exists() {
-                fs::canonicalize(main_file).unwrap()
-            } else {
-                let raw_content = std::fs::read_to_string(&root_package.manifest_path).unwrap();
-                let parsed_manifest_content: Manifest = toml::from_str(raw_content.as_str()).unwrap();
-                let lib_path = root_package.manifest_path.parent().unwrap().join(parsed_manifest_content.lib.path);
-
-                if lib_path.exists() {
-                    fs::canonicalize(lib_path).unwrap()
+                if lib_file.exists() {
+                    fs::canonicalize(lib_file).unwrap()
+                } else if main_file.exists() {
+                    fs::canonicalize(main_file).unwrap()
                 } else {
-                    panic!("No src/lib.rs or src/main.rs found for this Cargo.toml file");
+                    let raw_content = std::fs::read_to_string(&root_package.manifest_path).unwrap();
+                    let parsed_manifest_content: Manifest = toml::from_str(raw_content.as_str()).unwrap();
+                    let lib_path = root_package.manifest_path.parent().unwrap().join(parsed_manifest_content.lib.path);
+
+                    if lib_path.exists() {
+                        fs::canonicalize(lib_path).unwrap()
+                    } else {
+                        panic!("No src/lib.rs or src/main.rs found for this Cargo.toml file");
+                    }
                 }
+            };
+
+            let source_rust_content = fs::read_to_string(&root_src_file).unwrap();
+            let file_ast = syn::parse_file(&source_rust_content).unwrap_or_else(|_| {
+                syn::File {
+                    shebang: None,
+                    attrs: vec!(),
+                    items: vec!()
+                }
+            });
+
+            let mut deps = vec!();
+            let mut packagedeps = metadata.packages.clone();
+            packagedeps.remove(0);
+            for package in packagedeps {
+                DEP_IDS.with(|ids_ptr| {
+                    let included;
+
+                    {
+                        let mut ids = ids_ptr.borrow_mut();
+                        let pkg_id = format!("{:?} {:?}", package.name, package.version);
+                        included = ids.contains(&pkg_id);
+                        if !included {
+                            ids.push(pkg_id);
+                        }
+                    }
+
+                    if !included && is_root {
+                        let package_crate = Crate::new(package.manifest_path.into_string().as_str(), false);
+                        deps.push(package_crate);
+                    }
+                });
             }
-        };
 
-        let source_rust_content = fs::read_to_string(&root_src_file).unwrap();
-        let file_ast = syn::parse_file(&source_rust_content).unwrap_or_else(|_| {
-            syn::File {
-                shebang: None,
-                attrs: vec!(),
-                items: vec!()
-            }
-        });
+            let mut result = Crate {
+                name: root_package.name.clone(),
+                manifest_path: fs::canonicalize(manifest_path).unwrap(),
+                root_src_file: root_src_file.clone(),
+                root_module: Module {
+                    visibility: Visibility::Public,
+                    file_path: root_src_file,
+                    module_path: vec!["crate".to_string()],
+                    source: Some(ModuleSource::File(file_ast)),
+                    scope: None,
+                },
+                deps: deps
+            };
 
-        let mut result = Crate {
-            name: root_package.name.clone(),
-            manifest_path: fs::canonicalize(manifest_path).unwrap(),
-            root_src_file: root_src_file.clone(),
-            root_module: Module {
-                visibility: Visibility::Public,
-                file_path: root_src_file,
-                module_path: vec!["crate".to_string()],
-                source: Some(ModuleSource::File(file_ast)),
-                scope: None,
-            }
-        };
+            result.resolve();
 
-        result.resolve();
-
-        result
+            result
+        }
     }
 
     /// Create a map of the modules for this crate
@@ -218,7 +263,7 @@ fn get_ident(ident: &Ident, attrs: &[Attribute]) -> (Ident, bool) {
 impl Module {
     pub fn resolve(&mut self) {
         self.resolve_modules();
-        // self.resolve_imports();
+        self.resolve_imports();
     }
 
     /// Maps out modules, structs and enums within the scope of this module
@@ -353,7 +398,6 @@ impl Module {
         });
     }
 
-    #[allow(dead_code)]
     fn resolve_imports(&mut self) {
         let imports = &mut self.scope.as_mut().unwrap().imports;
 
@@ -365,6 +409,8 @@ impl Module {
         for item in items.iter() {
             if let syn::Item::Use(item_use) = item {
                 let flattened_imports = flatten_use_tree(&item_use.tree);
+
+                debug!("{:?}", flattened_imports);
 
                 for import in flattened_imports {
                     imports.push(Import {
@@ -477,6 +523,9 @@ fn flatten_use_tree(use_tree: &UseTree) -> Vec<Vec<String>> {
                                         moved_tree_cursor = true;
                                         break;
                                     }
+                                }
+                                UseTree::Name(_use_name) => {
+                                    moved_tree_cursor = true;
                                 }
                                 // Since we're not matching UseTree::Group here, a::b::{{c}, {d}} might
                                 // break. But also why would anybody do that

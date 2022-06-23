@@ -17,14 +17,31 @@ use crate::source_graph::Crate;
 const STREAM_SINK_IDENT: &str = "StreamSink";
 const RESULT_IDENT: &str = "Result";
 
-pub fn parse(source_rust_content: &str, file: File, manifest_path: &str) -> IrFile {
-    let crate_map = Crate::new(manifest_path);
+pub fn parse(source_rust_content: &str, file: File, manifest_path: &str, is_root: bool, structs: Option<Vec<String>>, enums: Option<Vec<String>>) -> IrFile {
+    let crate_map = Crate::new(manifest_path, true);
+    debug!("{:?}", crate_map.root_module.scope.as_ref().unwrap().modules);
 
-    let src_fns = extract_fns_from_file(&file);
-    let src_structs = crate_map.root_module.collect_structs_to_vec();
-    let src_enums = crate_map.root_module.collect_enums_to_vec();
+    if crate_map.name == "".to_string() {
+        panic!("Unable to get metadata for root package");
+    }
 
-    let parser = Parser::new(TypeParser::new(src_structs, src_enums));
+    let src_fns = if is_root {
+        extract_fns_from_file(&file)
+    } else {
+        vec!()
+    };
+    let mut src_structs = crate_map.root_module.collect_structs_to_vec();
+    let mut src_enums = crate_map.root_module.collect_enums_to_vec();
+
+    if structs.is_some() {
+        src_structs.retain(|k, _| structs.as_ref().unwrap().contains(k));
+    }
+
+    if enums.is_some() {
+        src_enums.retain(|k, _| enums.as_ref().unwrap().contains(k));
+    }
+
+    let parser = Parser::new(TypeParser::new(&crate_map, src_structs, src_enums));
     parser.parse(source_rust_content, src_fns)
 }
 

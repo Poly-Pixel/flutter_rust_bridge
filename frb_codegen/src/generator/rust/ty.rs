@@ -77,6 +77,7 @@ pub enum TypeRustGenerator<'a> {
     StructRef(TypeStructRefGenerator<'a>),
     Boxed(TypeBoxedGenerator<'a>),
     EnumRef(TypeEnumRefGenerator<'a>),
+    Imported(TypeImportedGenerator<'a>)
 }
 
 impl<'a> TypeRustGenerator<'a> {
@@ -91,6 +92,7 @@ impl<'a> TypeRustGenerator<'a> {
             StructRef(ir) => TypeStructRefGenerator { ir, context }.into(),
             Boxed(ir) => TypeBoxedGenerator { ir, context }.into(),
             EnumRef(ir) => TypeEnumRefGenerator { ir, context }.into(),
+            Imported(ir) => TypeImportedGenerator { ir, context }.into()
         }
     }
 }

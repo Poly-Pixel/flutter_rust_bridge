@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::string::String;
 
 use syn::*;
+use log::debug;
 
 use crate::ir::IrType::*;
 use crate::ir::*;
@@ -13,6 +14,8 @@ use crate::source_graph::{Enum, Struct};
 use crate::parser::{extract_comments, extract_metadata, type_to_string};
 
 pub struct TypeParser<'a> {
+    crate_map: &'a Crate,
+
     src_structs: HashMap<String, &'a Struct>,
     src_enums: HashMap<String, &'a Enum>,
 
@@ -25,10 +28,12 @@ pub struct TypeParser<'a> {
 
 impl<'a> TypeParser<'a> {
     pub fn new(
+        crate_map: &'a Crate,
         src_structs: HashMap<String, &'a Struct>,
         src_enums: HashMap<String, &'a Enum>,
     ) -> Self {
         TypeParser {
+            crate_map,
             src_structs,
             src_enums,
             struct_pool: HashMap::new(),
@@ -169,7 +174,9 @@ impl<'a> TypeParser<'a> {
     pub fn convert_path_to_ir_type(&mut self, p: SupportedPathType) -> Option<IrType> {
         let p_as_str = format!("{}", &p);
         let ident_string = &p.ident.to_string();
-        if let Some(generic) = p.generic {
+        let gen = p.generic.is_some();
+        if gen {
+            let generic = p.generic.unwrap();
             match ident_string.as_str() {
                 "SyncReturn" => {
                     // Special-case SyncReturn<Vec<u8>>. SyncReturn for any other type is not
@@ -242,7 +249,9 @@ impl<'a> TypeParser<'a> {
                         other => IrType::Optional(IrTypeOptional::new_ptr(other)),
                     })
                 }
-                _ => None,
+                _ => {
+                    self.test(ident_string, &p)
+                },
             }
         } else {
             IrTypePrimitive::try_from_rust_str(ident_string)

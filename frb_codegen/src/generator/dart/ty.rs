@@ -16,6 +16,10 @@ pub trait TypeDartGeneratorTrait {
     fn structs(&self) -> String {
         "".to_string()
     }
+
+    fn imports(&self) -> String {
+        "".to_string()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +49,7 @@ pub enum TypeDartGenerator<'a> {
     StructRef(TypeStructRefGenerator<'a>),
     Boxed(TypeBoxedGenerator<'a>),
     EnumRef(TypeEnumRefGenerator<'a>),
+    Imported(TypeImportedGenerator<'a>)
 }
 
 impl<'a> TypeDartGenerator<'a> {
@@ -59,6 +64,7 @@ impl<'a> TypeDartGenerator<'a> {
             StructRef(ir) => TypeStructRefGenerator { ir, context }.into(),
             Boxed(ir) => TypeBoxedGenerator { ir, context }.into(),
             EnumRef(ir) => TypeEnumRefGenerator { ir, context }.into(),
+            Imported(ir) => TypeImportedGenerator { ir, context}.into()
         }
     }
 }

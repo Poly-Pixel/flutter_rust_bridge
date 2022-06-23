@@ -3,6 +3,7 @@ mod ty_boxed;
 mod ty_delegate;
 mod ty_enum;
 mod ty_general_list;
+mod ty_imported;
 mod ty_optional;
 mod ty_primitive;
 mod ty_primitive_list;
@@ -15,6 +16,7 @@ pub use ty_boxed::*;
 pub use ty_delegate::*;
 pub use ty_enum::*;
 pub use ty_general_list::*;
+pub use ty_imported::*;
 pub use ty_optional::*;
 pub use ty_primitive::*;
 pub use ty_primitive_list::*;
@@ -119,6 +121,10 @@ fn get_dart_api_spec_from_ir_file(ir_file: &IrFile) -> DartApiSpec {
     let dart_wire2api_funcs = distinct_output_types
         .iter()
         .map(|ty| generate_wire2api_func(ty, ir_file))
+        .collect::<Vec<_>>();
+    let dart_imports = distinct_output_types
+        .iter()
+        .map(|ty| generate_imports(ty, ir_file))
         .collect::<Vec<_>>();
 
     let needs_freezed = distinct_types.iter().any(|ty| match ty {
@@ -484,6 +490,10 @@ fn generate_wire2api_func(ty: &IrType, ir_file: &IrFile) -> String {
         ty.safe_ident(),
         body,
     )
+}
+
+fn generate_imports(ty: &IrType, ir_file: &IrFile) -> String {
+    TypeDartGenerator::new(ty.clone(), ir_file).imports() + "\n"
 }
 
 fn gen_wire2api_simple_type_cast(s: &str) -> String {

@@ -14,6 +14,7 @@ pub enum IrType {
     StructRef(IrTypeStructRef),
     Boxed(IrTypeBoxed),
     EnumRef(IrTypeEnumRef),
+    Imported(IrTypeImported)
 }
 
 impl IrType {
